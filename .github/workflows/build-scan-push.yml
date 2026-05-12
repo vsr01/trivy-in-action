@@ -31,7 +31,7 @@ jobs:
       #    Fails the job on HIGH/CRITICAL misconfigurations.
       # ------------------------------------------------------------------
       - name: Trivy - scan Dockerfile (config)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
@@ -62,7 +62,7 @@ jobs:
       #    Any HIGH/CRITICAL fixable CVE fails the pipeline.
       # ------------------------------------------------------------------
       - name: Trivy - scan image (vulnerabilities)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
           severity: HIGH,CRITICAL
@@ -75,7 +75,7 @@ jobs:
       # Optional: also produce SARIF so findings show up in the Security tab.
       - name: Trivy - SARIF report (image)
         if: always()
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
           severity: HIGH,CRITICAL
