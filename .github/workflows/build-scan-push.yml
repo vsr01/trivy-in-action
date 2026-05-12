@@ -1,0 +1,126 @@
+name: build-scan-push
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  # Local tag used only for the in-runner scan step.
+  LOCAL_IMAGE: trivy-demo:${{ github.sha }}
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      security-events: write  # lets us upload Trivy SARIF to the Security tab
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 1. Static analysis of the Dockerfile itself.
+      #    Fails the job on HIGH/CRITICAL misconfigurations.
+      # ------------------------------------------------------------------
+      - name: Trivy - scan Dockerfile (config)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          hide-progress: true
+          format: table
+
+      # ------------------------------------------------------------------
+      # 2. Build the image into the local Docker daemon so we can scan it
+      #    *before* anything is published.
+      # ------------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (load locally, do not push yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ------------------------------------------------------------------
+      # 3. Vulnerability scan of the built image.
+      #    Any HIGH/CRITICAL fixable CVE fails the pipeline.
+      # ------------------------------------------------------------------
+      - name: Trivy - scan image (vulnerabilities)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+          ignore-unfixed: true
+          exit-code: '1'
+          hide-progress: true
+          format: table
+
+      # Optional: also produce SARIF so findings show up in the Security tab.
+      - name: Trivy - SARIF report (image)
+        if: always()
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+          ignore-unfixed: true
+          exit-code: '0'
+          format: sarif
+          output: trivy-image.sarif
+
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      # ------------------------------------------------------------------
+      # 4. Only if every previous step passed AND this is not a PR,
+      #    publish to GHCR.
+      # ------------------------------------------------------------------
+      - name: Compute GHCR tags
+        id: meta
+        if: github.event_name != 'pull_request'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
