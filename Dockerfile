@@ -16,6 +16,8 @@ RUN groupadd --system --gid 1001 appgroup \
 
 COPY --chown=appuser:appgroup app.py ./
 
+USER appuser
+
 EXPOSE 8000
 
 # Lightweight stdlib-only health check so we don't pull in curl/wget.

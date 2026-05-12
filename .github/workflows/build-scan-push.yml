@@ -48,6 +48,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build image (load locally, do not push yet)
+        id: local_image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -73,8 +74,10 @@ jobs:
           format: table
 
       # Optional: also produce SARIF so findings show up in the Security tab.
+      # Only after a successful local build — `if: always()` alone would re-run
+      # here after an earlier failure when no image exists yet.
       - name: Trivy - SARIF report (image)
-        if: always()
+        if: always() && steps.local_image.outcome == 'success'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.LOCAL_IMAGE }}
@@ -86,11 +89,19 @@ jobs:
           output: trivy-image.sarif
 
       - name: Upload Trivy SARIF
-        if: always() && hashFiles('trivy-image.sarif') != ''
+        if: always() && steps.local_image.outcome == 'success' && hashFiles('trivy-image.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
+
+      - name: Upload SARIF as workflow artifact
+        if: always() && steps.local_image.outcome == 'success' && hashFiles('trivy-image.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-sarif
+          path: trivy-image.sarif
+          if-no-files-found: ignore
 
       # ------------------------------------------------------------------
       # 4. Only if every previous step passed AND this is not a PR,

@@ -35,7 +35,8 @@ order, and the job fails immediately at the first red step:
 3. **Trivy image scan** &mdash; scans the just-built local image for
    `os,library` CVEs (`ignore-unfixed: true`, `severity: HIGH,CRITICAL`,
    `exit-code: 1`). A second Trivy invocation produces SARIF, which is uploaded
-   to GitHub's Security tab via `github/codeql-action/upload-sarif`.
+   to GitHub's Security tab via `github/codeql-action/upload-sarif` and also
+   attached to the workflow run as a downloadable artifact.
 4. **Publish to GHCR** &mdash; only on non-PR events, and only if all of the
    above passed. Logs in with the auto-provided `GITHUB_TOKEN`, computes tags
    with `docker/metadata-action` (branch, full SHA, plus `latest` on the
@@ -56,6 +57,26 @@ permissions:
 
 No additional secrets are required &mdash; `GITHUB_TOKEN` is enough to push to
 `ghcr.io/<owner>/<repo>`.
+
+### Where to find the SARIF report
+
+When the **local image build** step succeeds, Trivy writes `trivy-image.sarif`
+and the workflow does two things with it:
+
+1. **GitHub Security &rarr; Code scanning** &mdash; the `upload-sarif` step sends
+   the file to GitHub. Open your repository, then **Security**, then **Code
+   scanning** (wording can vary slightly by plan). Findings appear there after
+   processing (usually within a minute). If **Code scanning** is not available
+   for your org or plan, the upload step may still succeed but the UI will not
+   show a dedicated code-scanning view.
+2. **Actions run artifacts** &mdash; each successful SARIF generation also
+   uploads an artifact named **`trivy-image-sarif`**. Open the workflow run,
+   scroll to **Artifacts** at the bottom, and download the ZIP (it contains
+   `trivy-image.sarif`).
+
+If an earlier step fails **before** the image is built (for example, the
+config scan fails), no SARIF file is produced for that run, because there is no
+image to scan.
 
 ---
 
